@@ -9,6 +9,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -42,8 +43,20 @@ class MainActivity : ComponentActivity() {
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun TaskListScreen() {
-    var tasks by remember { mutableStateOf(getSampleTasks()) }
+    var tasks by remember { mutableStateOf<List<TodoTask>>(emptyList()) }
     var showDialog by remember { mutableStateOf(false) }
+    var isLoading by remember { mutableStateOf(false) }
+    var errorMessage by remember { mutableStateOf<String?>(null) }
+    val scope = rememberCoroutineScope()
+
+    // Завантаження задач при запуску
+    LaunchedEffect(Unit) {
+        loadTasks(
+            onLoading = { isLoading = it },
+            onSuccess = { tasks = it },
+            onError = { errorMessage = it }
+        )
+    }
 
     Scaffold(
         modifier = Modifier.fillMaxSize(),
@@ -53,7 +66,20 @@ fun TaskListScreen() {
                 colors = TopAppBarDefaults.topAppBarColors(
                     containerColor = MaterialTheme.colorScheme.primaryContainer,
                     titleContentColor = MaterialTheme.colorScheme.onPrimaryContainer
-                )
+                ),
+                actions = {
+                    IconButton(onClick = {
+                        scope.launch {
+                            loadTasks(
+                                onLoading = { isLoading = it },
+                                onSuccess = { tasks = it },
+                                onError = { errorMessage = it }
+                            )
+                        }
+                    }) {
+                        Icon(Icons.Default.Refresh, contentDescription = "Оновити")
+                    }
+                }
             )
         },
         floatingActionButton = {
@@ -67,7 +93,29 @@ fun TaskListScreen() {
                 .fillMaxSize()
                 .padding(innerPadding)
         ) {
-            if (tasks.isEmpty()) {
+            // Показати помилку якщо є
+            errorMessage?.let { error ->
+                Surface(
+                    modifier = Modifier.fillMaxWidth(),
+                    color = MaterialTheme.colorScheme.errorContainer
+                ) {
+                    Text(
+                        text = error,
+                        modifier = Modifier.padding(16.dp),
+                        color = MaterialTheme.colorScheme.onErrorContainer
+                    )
+                }
+            }
+
+            // Показати індикатор завантаження
+            if (isLoading) {
+                Box(
+                    modifier = Modifier.fillMaxSize(),
+                    contentAlignment = Alignment.Center
+                ) {
+                    CircularProgressIndicator()
+                }
+            } else if (tasks.isEmpty()) {
                 Box(
                     modifier = Modifier.fillMaxSize(),
                     contentAlignment = Alignment.Center
@@ -88,13 +136,32 @@ fun TaskListScreen() {
                         TaskItem(
                             task = task,
                             onToggle = {
-                                tasks = tasks.map {
-                                    if (it.id == task.id) it.copy(isCompleted = !it.isCompleted)
-                                    else it
+                                scope.launch {
+                                    try {
+                                        RetrofitInstance.api.toggleTask(task.id)
+                                        loadTasks(
+                                            onLoading = { isLoading = it },
+                                            onSuccess = { tasks = it },
+                                            onError = { errorMessage = it }
+                                        )
+                                    } catch (e: Exception) {
+                                        errorMessage = "Помилка: ${e.message}"
+                                    }
                                 }
                             },
                             onDelete = {
-                                tasks = tasks.filter { it.id != task.id }
+                                scope.launch {
+                                    try {
+                                        RetrofitInstance.api.deleteTask(task.id)
+                                        loadTasks(
+                                            onLoading = { isLoading = it },
+                                            onSuccess = { tasks = it },
+                                            onError = { errorMessage = it }
+                                        )
+                                    } catch (e: Exception) {
+                                        errorMessage = "Помилка: ${e.message}"
+                                    }
+                                }
                             }
                         )
                     }
@@ -106,18 +173,51 @@ fun TaskListScreen() {
             AddTaskDialog(
                 onDismiss = { showDialog = false },
                 onConfirm = { title, description ->
-                    val newTask = TodoTask(
-                        id = (tasks.maxOfOrNull { it.id } ?: 0) + 1,
-                        title = title,
-                        description = description,
-                        isCompleted = false,
-                        createdAt = System.currentTimeMillis().toString()
-                    )
-                    tasks = tasks + newTask
-                    showDialog = false
+                    scope.launch {
+                        try {
+                            val request = CreateTaskRequest(title, description.ifBlank { null })
+                            RetrofitInstance.api.createTask(request)
+                            loadTasks(
+                                onLoading = { isLoading = it },
+                                onSuccess = { tasks = it },
+                                onError = { errorMessage = it }
+                            )
+                            showDialog = false
+                        } catch (e: Exception) {
+                            errorMessage = "Помилка створення задачі: ${e.message}"
+                        }
+                    }
                 }
             )
         }
+    }
+}
+
+// Функція для завантаження задач з API
+suspend fun loadTasks(
+    onLoading: (Boolean) -> Unit,
+    onSuccess: (List<TodoTask>) -> Unit,
+    onError: (String) -> Unit
+) {
+    try {
+        onLoading(true)
+        onError("")  // Очистити попередні помилки
+        val response = RetrofitInstance.api.getTasks()
+        val tasks = response.map { taskResponse ->
+            TodoTask(
+                id = taskResponse.id,
+                title = taskResponse.title,
+                description = taskResponse.description,
+                isCompleted = taskResponse.isCompleted,
+                createdAt = taskResponse.createdAt
+            )
+        }
+        onSuccess(tasks)
+    } catch (e: Exception) {
+        onError("Не вдалося завантажити задачі: ${e.message}")
+        onSuccess(emptyList())
+    } finally {
+        onLoading(false)
     }
 }
 
@@ -220,16 +320,6 @@ fun AddTaskDialog(
                 Text("Скасувати")
             }
         }
-    )
-}
-
-fun getSampleTasks(): List<TodoTask> {
-    return listOf(
-        TodoTask(1, "Купити продукти", "Молоко, хліб, яйця", false, ""),
-        TodoTask(2, "Зробити домашнє завдання", "Математика та фізика", false, ""),
-        TodoTask(3, "Прибрати квартиру", "Пропилососити та помити підлогу", true, ""),
-        TodoTask(4, "Зателефонувати мамі", "", false, ""),
-        TodoTask(5, "Піти в спортзал", "Тренування о 18:00", false, "")
     )
 }
 
