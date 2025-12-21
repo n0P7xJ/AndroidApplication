@@ -1,31 +1,48 @@
 package com.example.myapplication
 
+import android.content.Context
+import android.net.Uri
 import android.os.Bundle
 import androidx.activity.ComponentActivity
+import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.Image
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Photo
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
+import coil.compose.rememberAsyncImagePainter
 import com.example.myapplication.ui.theme.MyApplicationTheme
 import kotlinx.coroutines.launch
+import java.io.File
+import java.io.FileOutputStream
 
 data class TodoTask(
     val id: Int,
     val title: String,
     val description: String,
     val isCompleted: Boolean,
-    val createdAt: String
+    val createdAt: String,
+    val imageUrl: String? = null
 )
 
 class MainActivity : ComponentActivity() {
@@ -172,11 +189,13 @@ fun TaskListScreen() {
         if (showDialog) {
             AddTaskDialog(
                 onDismiss = { showDialog = false },
-                onConfirm = { title, description ->
+                onConfirm = { title, description, imageFile ->
                     scope.launch {
                         try {
-                            val request = CreateTaskRequest(title, description.ifBlank { null })
-                            RetrofitInstance.api.createTask(request)
+                            val titlePart = createTextRequestBody(title)
+                            val descriptionPart = createTextRequestBody(description)
+                            val imagePart = createImagePart(imageFile)
+                            RetrofitInstance.api.createTask(titlePart, descriptionPart, imagePart)
                             loadTasks(
                                 onLoading = { isLoading = it },
                                 onSuccess = { tasks = it },
@@ -209,7 +228,8 @@ suspend fun loadTasks(
                 title = taskResponse.title,
                 description = taskResponse.description,
                 isCompleted = taskResponse.isCompleted,
-                createdAt = taskResponse.createdAt
+                createdAt = taskResponse.createdAt,
+                imageUrl = taskResponse.imageUrl
             )
         }
         onSuccess(tasks)
@@ -231,43 +251,62 @@ fun TaskItem(
         modifier = Modifier.fillMaxWidth(),
         elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
     ) {
-        Row(
+        Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(16.dp),
-            verticalAlignment = Alignment.CenterVertically
+                .padding(16.dp)
         ) {
-            Checkbox(
-                checked = task.isCompleted,
-                onCheckedChange = { onToggle() }
-            )
-            
-            Spacer(modifier = Modifier.width(12.dp))
-            
-            Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    text = task.title,
-                    style = MaterialTheme.typography.titleMedium,
-                    textDecoration = if (task.isCompleted) TextDecoration.LineThrough else null,
-                    color = if (task.isCompleted) 
-                        MaterialTheme.colorScheme.onSurfaceVariant 
-                    else 
-                        MaterialTheme.colorScheme.onSurface
+            // Показати зображення якщо є
+            task.imageUrl?.let { imageUrl ->
+                val fullImageUrl = "${RetrofitInstance.BASE_URL}$imageUrl"
+                Image(
+                    painter = rememberAsyncImagePainter(fullImageUrl),
+                    contentDescription = "Зображення задачі",
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(150.dp)
+                        .clip(RoundedCornerShape(8.dp)),
+                    contentScale = ContentScale.Crop
                 )
-                if (task.description.isNotEmpty()) {
-                    Spacer(modifier = Modifier.height(4.dp))
-                    Text(
-                        text = task.description,
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
+                Spacer(modifier = Modifier.height(12.dp))
             }
             
-            Spacer(modifier = Modifier.width(8.dp))
-            
-            TextButton(onClick = onDelete) {
-                Text("Видалити", color = MaterialTheme.colorScheme.error)
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Checkbox(
+                    checked = task.isCompleted,
+                    onCheckedChange = { onToggle() }
+                )
+                
+                Spacer(modifier = Modifier.width(12.dp))
+                
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = task.title,
+                        style = MaterialTheme.typography.titleMedium,
+                        textDecoration = if (task.isCompleted) TextDecoration.LineThrough else null,
+                        color = if (task.isCompleted) 
+                            MaterialTheme.colorScheme.onSurfaceVariant 
+                        else 
+                            MaterialTheme.colorScheme.onSurface
+                    )
+                    if (task.description.isNotEmpty()) {
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Text(
+                            text = task.description,
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
+                
+                Spacer(modifier = Modifier.width(8.dp))
+                
+                TextButton(onClick = onDelete) {
+                    Text("Видалити", color = MaterialTheme.colorScheme.error)
+                }
             }
         }
     }
@@ -276,10 +315,23 @@ fun TaskItem(
 @Composable
 fun AddTaskDialog(
     onDismiss: () -> Unit,
-    onConfirm: (String, String) -> Unit
+    onConfirm: (String, String, File?) -> Unit
 ) {
     var title by remember { mutableStateOf("") }
     var description by remember { mutableStateOf("") }
+    var selectedImageUri by remember { mutableStateOf<Uri?>(null) }
+    var imageFile by remember { mutableStateOf<File?>(null) }
+    val context = LocalContext.current
+    
+    // Лаунчер для вибору зображення з галереї
+    val imagePickerLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.GetContent()
+    ) { uri: Uri? ->
+        uri?.let {
+            selectedImageUri = it
+            imageFile = uriToFile(context, it)
+        }
+    }
 
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -301,13 +353,73 @@ fun AddTaskDialog(
                     modifier = Modifier.fillMaxWidth(),
                     maxLines = 3
                 )
+                Spacer(modifier = Modifier.height(16.dp))
+                
+                // Секція вибору фото
+                Text(
+                    text = "Фото (необов'язково)",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                Spacer(modifier = Modifier.height(8.dp))
+                
+                if (selectedImageUri != null) {
+                    // Показати прев'ю обраного зображення
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(150.dp)
+                    ) {
+                        Image(
+                            painter = rememberAsyncImagePainter(selectedImageUri),
+                            contentDescription = "Обране зображення",
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .clip(RoundedCornerShape(8.dp)),
+                            contentScale = ContentScale.Crop
+                        )
+                        // Кнопка для видалення зображення
+                        IconButton(
+                            onClick = { 
+                                selectedImageUri = null
+                                imageFile = null
+                            },
+                            modifier = Modifier
+                                .align(Alignment.TopEnd)
+                                .padding(4.dp)
+                                .background(
+                                    MaterialTheme.colorScheme.surface.copy(alpha = 0.7f),
+                                    RoundedCornerShape(50)
+                                )
+                        ) {
+                            Icon(
+                                Icons.Default.Close,
+                                contentDescription = "Видалити фото",
+                                tint = MaterialTheme.colorScheme.error
+                            )
+                        }
+                    }
+                } else {
+                    // Кнопка для вибору фото
+                    OutlinedButton(
+                        onClick = { imagePickerLauncher.launch("image/*") },
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Icon(
+                            Icons.Default.Photo,
+                            contentDescription = null,
+                            modifier = Modifier.padding(end = 8.dp)
+                        )
+                        Text("Вибрати фото з галереї")
+                    }
+                }
             }
         },
         confirmButton = {
             TextButton(
                 onClick = { 
                     if (title.isNotBlank()) {
-                        onConfirm(title, description)
+                        onConfirm(title, description, imageFile)
                     }
                 },
                 enabled = title.isNotBlank()
@@ -321,6 +433,23 @@ fun AddTaskDialog(
             }
         }
     )
+}
+
+// Допоміжна функція для конвертації URI в File
+fun uriToFile(context: Context, uri: Uri): File? {
+    return try {
+        val inputStream = context.contentResolver.openInputStream(uri) ?: return null
+        val fileName = "upload_${System.currentTimeMillis()}.jpg"
+        val file = File(context.cacheDir, fileName)
+        FileOutputStream(file).use { outputStream ->
+            inputStream.copyTo(outputStream)
+        }
+        inputStream.close()
+        file
+    } catch (e: Exception) {
+        e.printStackTrace()
+        null
+    }
 }
 
 @Preview(showBackground = true)

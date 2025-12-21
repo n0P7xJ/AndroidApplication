@@ -1,8 +1,15 @@
 package com.example.myapplication
 
+import okhttp3.MediaType.Companion.toMediaTypeOrNull
+import okhttp3.MultipartBody
+import okhttp3.OkHttpClient
+import okhttp3.RequestBody.Companion.asRequestBody
+import okhttp3.RequestBody.Companion.toRequestBody
 import retrofit2.Retrofit
 import retrofit2.converter.gson.GsonConverterFactory
 import retrofit2.http.*
+import java.io.File
+import java.util.concurrent.TimeUnit
 
 // Модель даних для відповіді API
 data class TodoTaskResponse(
@@ -10,7 +17,8 @@ data class TodoTaskResponse(
     val title: String,
     val description: String,
     val isCompleted: Boolean,
-    val createdAt: String
+    val createdAt: String,
+    val imageUrl: String?
 )
 
 // API інтерфейс
@@ -18,8 +26,13 @@ interface TaskApiService {
     @GET("api/tasks")
     suspend fun getTasks(): List<TodoTaskResponse>
     
+    @Multipart
     @POST("api/tasks")
-    suspend fun createTask(@Body request: CreateTaskRequest): TodoTaskResponse
+    suspend fun createTask(
+        @Part("title") title: okhttp3.RequestBody,
+        @Part("description") description: okhttp3.RequestBody,
+        @Part image: MultipartBody.Part?
+    ): TodoTaskResponse
     
     @PATCH("api/tasks/{id}/toggle")
     suspend fun toggleTask(@Path("id") id: Int): TodoTaskResponse
@@ -36,13 +49,31 @@ data class CreateTaskRequest(
 // Singleton для Retrofit
 object RetrofitInstance {
     // Замініть на вашу IP адресу (для емулятора використовуйте 10.0.2.2)
-    private const val BASE_URL = "http://10.0.2.2:5000/"
+    const val BASE_URL = "http://10.0.2.2:5000"
+    
+    private val okHttpClient = OkHttpClient.Builder()
+        .connectTimeout(30, TimeUnit.SECONDS)
+        .readTimeout(30, TimeUnit.SECONDS)
+        .writeTimeout(30, TimeUnit.SECONDS)
+        .build()
     
     val api: TaskApiService by lazy {
         Retrofit.Builder()
-            .baseUrl(BASE_URL)
+            .baseUrl("$BASE_URL/")
+            .client(okHttpClient)
             .addConverterFactory(GsonConverterFactory.create())
             .build()
             .create(TaskApiService::class.java)
     }
+}
+
+// Допоміжні функції для створення запиту
+fun createTextRequestBody(text: String): okhttp3.RequestBody {
+    return text.toRequestBody("text/plain".toMediaTypeOrNull())
+}
+
+fun createImagePart(imageFile: File?): MultipartBody.Part? {
+    if (imageFile == null || !imageFile.exists()) return null
+    val requestBody = imageFile.asRequestBody("image/*".toMediaTypeOrNull())
+    return MultipartBody.Part.createFormData("image", imageFile.name, requestBody)
 }
