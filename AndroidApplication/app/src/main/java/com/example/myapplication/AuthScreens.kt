@@ -56,7 +56,6 @@ fun LoginScreen(
 ) {
     var email by remember { mutableStateOf("") }
     var password by remember { mutableStateOf("") }
-    var passwordVisible by remember { mutableStateOf(false) }
     var isLoading by remember { mutableStateOf(false) }
     var errorMessage by remember { mutableStateOf<String?>(null) }
     val scope = rememberCoroutineScope()
@@ -107,35 +106,36 @@ fun LoginScreen(
                 Spacer(modifier = Modifier.height(16.dp))
             }
             
-            // Email
-            OutlinedTextField(
+            // Email - покращене поле
+            EmailTextField(
                 value = email,
                 onValueChange = { email = it },
-                label = { Text("Email") },
-                modifier = Modifier.fillMaxWidth(),
-                singleLine = true,
-                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email),
-                leadingIcon = { Icon(Icons.Default.Email, contentDescription = null) }
+                enabled = !isLoading
             )
             
             Spacer(modifier = Modifier.height(16.dp))
             
-            // Пароль
-            OutlinedTextField(
+            // Пароль - покращене поле
+            PasswordTextField(
                 value = password,
                 onValueChange = { password = it },
-                label = { Text("Пароль") },
-                modifier = Modifier.fillMaxWidth(),
-                singleLine = true,
-                visualTransformation = if (passwordVisible) VisualTransformation.None else PasswordVisualTransformation(),
-                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
-                leadingIcon = { Icon(Icons.Default.Lock, contentDescription = null) },
-                trailingIcon = {
-                    IconButton(onClick = { passwordVisible = !passwordVisible }) {
-                        Icon(
-                            if (passwordVisible) Icons.Default.VisibilityOff else Icons.Default.Visibility,
-                            contentDescription = if (passwordVisible) "Сховати пароль" else "Показати пароль"
-                        )
+                enabled = !isLoading,
+                useStrongValidation = false,
+                imeAction = androidx.compose.ui.text.input.ImeAction.Done,
+                onImeAction = {
+                    if (email.isNotBlank() && password.isNotBlank()) {
+                        scope.launch {
+                            isLoading = true
+                            errorMessage = null
+                            try {
+                                val response = RetrofitInstance.api.login(LoginRequest(email, password))
+                                onLoginSuccess(User(response.id, response.email, response.name, response.avatarUrl))
+                            } catch (e: Exception) {
+                                errorMessage = "Невірний email або пароль"
+                            } finally {
+                                isLoading = false
+                            }
+                        }
                     }
                 }
             )
@@ -192,7 +192,6 @@ fun RegisterScreen(
     var password by remember { mutableStateOf("") }
     var confirmPassword by remember { mutableStateOf("") }
     var name by remember { mutableStateOf("") }
-    var passwordVisible by remember { mutableStateOf(false) }
     var isLoading by remember { mutableStateOf(false) }
     var errorMessage by remember { mutableStateOf<String?>(null) }
     
@@ -299,75 +298,40 @@ fun RegisterScreen(
             
             Spacer(modifier = Modifier.height(24.dp))
             
-            // Ім'я
-            OutlinedTextField(
+            // Ім'я - покращене поле
+            NameTextField(
                 value = name,
                 onValueChange = { name = it },
-                label = { Text("Ім'я") },
-                modifier = Modifier.fillMaxWidth(),
-                singleLine = true,
-                leadingIcon = { Icon(Icons.Default.Person, contentDescription = null) }
+                enabled = !isLoading
             )
             
             Spacer(modifier = Modifier.height(16.dp))
             
-            // Email
-            OutlinedTextField(
+            // Email - покращене поле
+            EmailTextField(
                 value = email,
                 onValueChange = { email = it },
-                label = { Text("Email") },
-                modifier = Modifier.fillMaxWidth(),
-                singleLine = true,
-                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email),
-                leadingIcon = { Icon(Icons.Default.Email, contentDescription = null) }
+                enabled = !isLoading
             )
             
             Spacer(modifier = Modifier.height(16.dp))
             
-            // Пароль
-            OutlinedTextField(
+            // Пароль - покращене поле
+            PasswordTextField(
                 value = password,
                 onValueChange = { password = it },
-                label = { Text("Пароль") },
-                modifier = Modifier.fillMaxWidth(),
-                singleLine = true,
-                visualTransformation = if (passwordVisible) VisualTransformation.None else PasswordVisualTransformation(),
-                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
-                leadingIcon = { Icon(Icons.Default.Lock, contentDescription = null) },
-                trailingIcon = {
-                    IconButton(onClick = { passwordVisible = !passwordVisible }) {
-                        Icon(
-                            if (passwordVisible) Icons.Default.VisibilityOff else Icons.Default.Visibility,
-                            contentDescription = null
-                        )
-                    }
-                },
-                isError = password.isNotEmpty() && password.length < 6,
-                supportingText = {
-                    if (password.isNotEmpty() && password.length < 6) {
-                        Text("Мінімум 6 символів")
-                    }
-                }
+                enabled = !isLoading,
+                useStrongValidation = true
             )
             
             Spacer(modifier = Modifier.height(16.dp))
             
-            // Підтвердження паролю
-            OutlinedTextField(
+            // Підтвердження паролю - покращене поле
+            ConfirmPasswordTextField(
                 value = confirmPassword,
                 onValueChange = { confirmPassword = it },
-                label = { Text("Підтвердіть пароль") },
-                modifier = Modifier.fillMaxWidth(),
-                singleLine = true,
-                visualTransformation = PasswordVisualTransformation(),
-                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
-                leadingIcon = { Icon(Icons.Default.Lock, contentDescription = null) },
-                isError = confirmPassword.isNotEmpty() && password != confirmPassword,
-                supportingText = {
-                    if (confirmPassword.isNotEmpty() && password != confirmPassword) {
-                        Text("Паролі не співпадають")
-                    }
-                }
+                password = password,
+                enabled = !isLoading
             )
             
             Spacer(modifier = Modifier.height(24.dp))

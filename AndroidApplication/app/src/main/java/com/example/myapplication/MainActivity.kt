@@ -434,37 +434,36 @@ fun EditTaskDialog(
 ) {
     var title by remember { mutableStateOf(task.title) }
     var description by remember { mutableStateOf(task.description) }
+    
+    // Валідація
+    val isTitleValid = title.isNotBlank() && title.length <= 100
 
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text("Редагувати задачу") },
         text = {
             Column {
-                OutlinedTextField(
+                // Покращене поле назви
+                TaskTitleTextField(
                     value = title,
-                    onValueChange = { title = it },
-                    label = { Text("Назва задачі") },
-                    modifier = Modifier.fillMaxWidth(),
-                    singleLine = true
+                    onValueChange = { title = it }
                 )
                 Spacer(modifier = Modifier.height(8.dp))
-                OutlinedTextField(
+                // Покращене поле опису
+                DescriptionTextField(
                     value = description,
-                    onValueChange = { description = it },
-                    label = { Text("Опис (необов'язково)") },
-                    modifier = Modifier.fillMaxWidth(),
-                    maxLines = 3
+                    onValueChange = { description = it }
                 )
             }
         },
         confirmButton = {
             TextButton(
                 onClick = { 
-                    if (title.isNotBlank()) {
+                    if (isTitleValid) {
                         onConfirm(title, description)
                     }
                 },
-                enabled = title.isNotBlank()
+                enabled = isTitleValid
             ) {
                 Text("Зберегти")
             }
@@ -488,6 +487,9 @@ fun AddTaskDialog(
     var imageFile by remember { mutableStateOf<File?>(null) }
     val context = LocalContext.current
     
+    // Валідація
+    val isTitleValid = title.isNotBlank() && title.length <= 100
+    
     // Лаунчер для вибору зображення з галереї
     val imagePickerLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.GetContent()
@@ -503,20 +505,16 @@ fun AddTaskDialog(
         title = { Text("Нова задача") },
         text = {
             Column {
-                OutlinedTextField(
+                // Покращене поле назви
+                TaskTitleTextField(
                     value = title,
-                    onValueChange = { title = it },
-                    label = { Text("Назва задачі") },
-                    modifier = Modifier.fillMaxWidth(),
-                    singleLine = true
+                    onValueChange = { title = it }
                 )
                 Spacer(modifier = Modifier.height(8.dp))
-                OutlinedTextField(
+                // Покращене поле опису
+                DescriptionTextField(
                     value = description,
-                    onValueChange = { description = it },
-                    label = { Text("Опис (необов'язково)") },
-                    modifier = Modifier.fillMaxWidth(),
-                    maxLines = 3
+                    onValueChange = { description = it }
                 )
                 Spacer(modifier = Modifier.height(16.dp))
                 
@@ -583,11 +581,11 @@ fun AddTaskDialog(
         confirmButton = {
             TextButton(
                 onClick = { 
-                    if (title.isNotBlank()) {
+                    if (isTitleValid) {
                         onConfirm(title, description, imageFile)
                     }
                 },
-                enabled = title.isNotBlank()
+                enabled = isTitleValid
             ) {
                 Text("Додати")
             }
