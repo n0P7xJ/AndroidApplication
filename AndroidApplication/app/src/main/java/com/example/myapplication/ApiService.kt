@@ -37,9 +37,18 @@ interface TaskApiService {
     @PATCH("api/tasks/{id}/toggle")
     suspend fun toggleTask(@Path("id") id: Int): TodoTaskResponse
     
+    @PUT("api/tasks/{id}")
+    suspend fun updateTask(@Path("id") id: Int, @Body request: UpdateTaskRequest): TodoTaskResponse
+    
     @DELETE("api/tasks/{id}")
     suspend fun deleteTask(@Path("id") id: Int)
 }
+
+data class UpdateTaskRequest(
+    val title: String?,
+    val description: String?,
+    val isCompleted: Boolean?
+)
 
 data class CreateTaskRequest(
     val title: String,

@@ -110,7 +110,8 @@ app.MapPut("/api/tasks/{id}", (int id, [FromBody] UpdateTaskRequest request) =>
         request.Title ?? existingTask.Title,
         request.Description ?? existingTask.Description,
         request.IsCompleted ?? existingTask.IsCompleted,
-        existingTask.CreatedAt
+        existingTask.CreatedAt,
+        existingTask.ImageUrl
     );
     tasks[index] = updatedTask;
     return Results.Ok(updatedTask);

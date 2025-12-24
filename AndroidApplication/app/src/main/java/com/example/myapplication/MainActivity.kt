@@ -18,6 +18,8 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Photo
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.*
@@ -62,6 +64,8 @@ class MainActivity : ComponentActivity() {
 fun TaskListScreen() {
     var tasks by remember { mutableStateOf<List<TodoTask>>(emptyList()) }
     var showDialog by remember { mutableStateOf(false) }
+    var showEditDialog by remember { mutableStateOf(false) }
+    var taskToEdit by remember { mutableStateOf<TodoTask?>(null) }
     var isLoading by remember { mutableStateOf(false) }
     var errorMessage by remember { mutableStateOf<String?>(null) }
     val scope = rememberCoroutineScope()
@@ -166,6 +170,10 @@ fun TaskListScreen() {
                                     }
                                 }
                             },
+                            onEdit = {
+                                taskToEdit = task
+                                showEditDialog = true
+                            },
                             onDelete = {
                                 scope.launch {
                                     try {
@@ -209,6 +217,38 @@ fun TaskListScreen() {
                 }
             )
         }
+        
+        // Діалог редагування задачі
+        if (showEditDialog && taskToEdit != null) {
+            EditTaskDialog(
+                task = taskToEdit!!,
+                onDismiss = { 
+                    showEditDialog = false
+                    taskToEdit = null
+                },
+                onConfirm = { title, description ->
+                    scope.launch {
+                        try {
+                            val request = UpdateTaskRequest(
+                                title = title,
+                                description = description,
+                                isCompleted = null
+                            )
+                            RetrofitInstance.api.updateTask(taskToEdit!!.id, request)
+                            loadTasks(
+                                onLoading = { isLoading = it },
+                                onSuccess = { tasks = it },
+                                onError = { errorMessage = it }
+                            )
+                            showEditDialog = false
+                            taskToEdit = null
+                        } catch (e: Exception) {
+                            errorMessage = "Помилка редагування задачі: ${e.message}"
+                        }
+                    }
+                }
+            )
+        }
     }
 }
 
@@ -245,6 +285,7 @@ suspend fun loadTasks(
 fun TaskItem(
     task: TodoTask,
     onToggle: () -> Unit,
+    onEdit: () -> Unit,
     onDelete: () -> Unit
 ) {
     Card(
@@ -304,12 +345,78 @@ fun TaskItem(
                 
                 Spacer(modifier = Modifier.width(8.dp))
                 
-                TextButton(onClick = onDelete) {
-                    Text("Видалити", color = MaterialTheme.colorScheme.error)
+                // Кнопка редагування
+                IconButton(onClick = onEdit) {
+                    Icon(
+                        Icons.Default.Edit,
+                        contentDescription = "Редагувати",
+                        tint = MaterialTheme.colorScheme.primary
+                    )
+                }
+                
+                // Кнопка видалення
+                IconButton(onClick = onDelete) {
+                    Icon(
+                        Icons.Default.Delete,
+                        contentDescription = "Видалити",
+                        tint = MaterialTheme.colorScheme.error
+                    )
                 }
             }
         }
     }
+}
+
+// Діалог редагування задачі
+@Composable
+fun EditTaskDialog(
+    task: TodoTask,
+    onDismiss: () -> Unit,
+    onConfirm: (String, String) -> Unit
+) {
+    var title by remember { mutableStateOf(task.title) }
+    var description by remember { mutableStateOf(task.description) }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Редагувати задачу") },
+        text = {
+            Column {
+                OutlinedTextField(
+                    value = title,
+                    onValueChange = { title = it },
+                    label = { Text("Назва задачі") },
+                    modifier = Modifier.fillMaxWidth(),
+                    singleLine = true
+                )
+                Spacer(modifier = Modifier.height(8.dp))
+                OutlinedTextField(
+                    value = description,
+                    onValueChange = { description = it },
+                    label = { Text("Опис (необов'язково)") },
+                    modifier = Modifier.fillMaxWidth(),
+                    maxLines = 3
+                )
+            }
+        },
+        confirmButton = {
+            TextButton(
+                onClick = { 
+                    if (title.isNotBlank()) {
+                        onConfirm(title, description)
+                    }
+                },
+                enabled = title.isNotBlank()
+            ) {
+                Text("Зберегти")
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text("Скасувати")
+            }
+        }
+    )
 }
 
 @Composable
