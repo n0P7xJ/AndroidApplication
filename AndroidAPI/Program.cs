@@ -37,7 +37,17 @@ if (!Directory.Exists(uploadsPath))
     Directory.CreateDirectory(uploadsPath);
 }
 
+// Папка для аватарів користувачів
+var avatarsPath = Path.Combine(builder.Environment.ContentRootPath, "wwwroot", "avatars");
+if (!Directory.Exists(avatarsPath))
+{
+    Directory.CreateDirectory(avatarsPath);
+}
+
 // In-memory data storage (replace with database in production)
+var users = new List<User>();
+int nextUserId = 1;
+
 var tasks = new List<TodoTask>
 {
     new(1, "Купити продукти", "Молоко, хліб, яйця", false, DateTime.UtcNow, null),
@@ -54,6 +64,171 @@ int nextTaskId = 6;
 // Health check
 app.MapGet("/api/health", () => Results.Ok(new { status = "healthy", timestamp = DateTime.UtcNow }))
     .WithName("HealthCheck");
+
+// ==================== AUTH ENDPOINTS ====================
+
+// Реєстрація користувача
+app.MapPost("/api/auth/register", async (HttpRequest request) =>
+{
+    var form = await request.ReadFormAsync();
+    var email = form["email"].ToString().ToLower().Trim();
+    var password = form["password"].ToString();
+    var name = form["name"].ToString();
+    
+    // Валідація
+    if (string.IsNullOrWhiteSpace(email) || string.IsNullOrWhiteSpace(password))
+    {
+        return Results.BadRequest(new { error = "Email та пароль обов'язкові" });
+    }
+    
+    if (password.Length < 6)
+    {
+        return Results.BadRequest(new { error = "Пароль має бути мінімум 6 символів" });
+    }
+    
+    // Перевірка чи email вже існує
+    if (users.Any(u => u.Email == email))
+    {
+        return Results.BadRequest(new { error = "Користувач з таким email вже існує" });
+    }
+    
+    // Обробка аватара
+    string? avatarUrl = null;
+    var avatarFile = form.Files.GetFile("avatar");
+    if (avatarFile != null && avatarFile.Length > 0)
+    {
+        var fileName = $"{Guid.NewGuid()}{Path.GetExtension(avatarFile.FileName)}";
+        var filePath = Path.Combine(avatarsPath, fileName);
+        using (var stream = new FileStream(filePath, FileMode.Create))
+        {
+            await avatarFile.CopyToAsync(stream);
+        }
+        avatarUrl = $"/avatars/{fileName}";
+    }
+    
+    // Хешування пароля (спрощена версія, в продакшні використовуйте BCrypt)
+    var passwordHash = Convert.ToBase64String(
+        System.Security.Cryptography.SHA256.HashData(
+            System.Text.Encoding.UTF8.GetBytes(password + "salt_key_123")
+        )
+    );
+    
+    var newUser = new User(
+        nextUserId++,
+        email,
+        passwordHash,
+        string.IsNullOrWhiteSpace(name) ? email.Split('@')[0] : name,
+        avatarUrl,
+        DateTime.UtcNow
+    );
+    
+    users.Add(newUser);
+    
+    return Results.Created($"/api/users/{newUser.Id}", new UserResponse(
+        newUser.Id,
+        newUser.Email,
+        newUser.Name,
+        newUser.AvatarUrl,
+        newUser.CreatedAt
+    ));
+})
+    .WithName("Register")
+    .DisableAntiforgery();
+
+// Логін
+app.MapPost("/api/auth/login", ([FromBody] LoginRequest request) =>
+{
+    var email = request.Email.ToLower().Trim();
+    var passwordHash = Convert.ToBase64String(
+        System.Security.Cryptography.SHA256.HashData(
+            System.Text.Encoding.UTF8.GetBytes(request.Password + "salt_key_123")
+        )
+    );
+    
+    var user = users.FirstOrDefault(u => u.Email == email && u.PasswordHash == passwordHash);
+    
+    if (user == null)
+    {
+        return Results.Unauthorized();
+    }
+    
+    return Results.Ok(new UserResponse(
+        user.Id,
+        user.Email,
+        user.Name,
+        user.AvatarUrl,
+        user.CreatedAt
+    ));
+})
+    .WithName("Login");
+
+// Отримати профіль користувача
+app.MapGet("/api/users/{id}", (int id) =>
+{
+    var user = users.FirstOrDefault(u => u.Id == id);
+    if (user == null) return Results.NotFound();
+    
+    return Results.Ok(new UserResponse(
+        user.Id,
+        user.Email,
+        user.Name,
+        user.AvatarUrl,
+        user.CreatedAt
+    ));
+})
+    .WithName("GetUserById");
+
+// Оновити профіль користувача
+app.MapPut("/api/users/{id}", async (int id, HttpRequest request) =>
+{
+    var index = users.FindIndex(u => u.Id == id);
+    if (index == -1) return Results.NotFound();
+    
+    var form = await request.ReadFormAsync();
+    var name = form["name"].ToString();
+    var existingUser = users[index];
+    
+    // Обробка нового аватара
+    string? avatarUrl = existingUser.AvatarUrl;
+    var avatarFile = form.Files.GetFile("avatar");
+    if (avatarFile != null && avatarFile.Length > 0)
+    {
+        // Видалити старий аватар
+        if (!string.IsNullOrEmpty(existingUser.AvatarUrl))
+        {
+            var oldPath = Path.Combine(builder.Environment.ContentRootPath, "wwwroot", existingUser.AvatarUrl.TrimStart('/'));
+            if (File.Exists(oldPath)) File.Delete(oldPath);
+        }
+        
+        var fileName = $"{Guid.NewGuid()}{Path.GetExtension(avatarFile.FileName)}";
+        var filePath = Path.Combine(avatarsPath, fileName);
+        using (var stream = new FileStream(filePath, FileMode.Create))
+        {
+            await avatarFile.CopyToAsync(stream);
+        }
+        avatarUrl = $"/avatars/{fileName}";
+    }
+    
+    var updatedUser = existingUser with
+    {
+        Name = string.IsNullOrWhiteSpace(name) ? existingUser.Name : name,
+        AvatarUrl = avatarUrl
+    };
+    
+    users[index] = updatedUser;
+    
+    return Results.Ok(new UserResponse(
+        updatedUser.Id,
+        updatedUser.Email,
+        updatedUser.Name,
+        updatedUser.AvatarUrl,
+        updatedUser.CreatedAt
+    ));
+})
+    .WithName("UpdateUser")
+    .DisableAntiforgery();
+
+// ==================== TASKS ENDPOINTS ====================
 
 // Tasks endpoints
 app.MapGet("/api/tasks", () => Results.Ok(tasks.OrderByDescending(t => t.CreatedAt)))
@@ -157,3 +332,9 @@ app.Run();
 record TodoTask(int Id, string Title, string Description, bool IsCompleted, DateTime CreatedAt, string? ImageUrl);
 record CreateTaskRequest(string Title, string? Description, string? ImageUrl);
 record UpdateTaskRequest(string? Title, string? Description, bool? IsCompleted, string? ImageUrl);
+
+// Auth Models
+record User(int Id, string Email, string PasswordHash, string Name, string? AvatarUrl, DateTime CreatedAt);
+record UserResponse(int Id, string Email, string Name, string? AvatarUrl, DateTime CreatedAt);
+record LoginRequest(string Email, string Password);
+record RegisterRequest(string Email, string Password, string? Name);

@@ -21,6 +21,20 @@ data class TodoTaskResponse(
     val imageUrl: String?
 )
 
+// Модель користувача
+data class UserResponse(
+    val id: Int,
+    val email: String,
+    val name: String,
+    val avatarUrl: String?,
+    val createdAt: String
+)
+
+data class LoginRequest(
+    val email: String,
+    val password: String
+)
+
 // API інтерфейс
 interface TaskApiService {
     @GET("api/tasks")
@@ -42,6 +56,30 @@ interface TaskApiService {
     
     @DELETE("api/tasks/{id}")
     suspend fun deleteTask(@Path("id") id: Int)
+    
+    // Auth endpoints
+    @Multipart
+    @POST("api/auth/register")
+    suspend fun register(
+        @Part("email") email: okhttp3.RequestBody,
+        @Part("password") password: okhttp3.RequestBody,
+        @Part("name") name: okhttp3.RequestBody,
+        @Part avatar: MultipartBody.Part?
+    ): UserResponse
+    
+    @POST("api/auth/login")
+    suspend fun login(@Body request: LoginRequest): UserResponse
+    
+    @GET("api/users/{id}")
+    suspend fun getUser(@Path("id") id: Int): UserResponse
+    
+    @Multipart
+    @PUT("api/users/{id}")
+    suspend fun updateUser(
+        @Path("id") id: Int,
+        @Part("name") name: okhttp3.RequestBody,
+        @Part avatar: MultipartBody.Part?
+    ): UserResponse
 }
 
 data class UpdateTaskRequest(
@@ -85,4 +123,10 @@ fun createImagePart(imageFile: File?): MultipartBody.Part? {
     if (imageFile == null || !imageFile.exists()) return null
     val requestBody = imageFile.asRequestBody("image/*".toMediaTypeOrNull())
     return MultipartBody.Part.createFormData("image", imageFile.name, requestBody)
+}
+
+fun createAvatarPart(imageFile: File?): MultipartBody.Part? {
+    if (imageFile == null || !imageFile.exists()) return null
+    val requestBody = imageFile.asRequestBody("image/*".toMediaTypeOrNull())
+    return MultipartBody.Part.createFormData("avatar", imageFile.name, requestBody)
 }

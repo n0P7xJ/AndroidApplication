@@ -20,6 +20,7 @@ import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.ExitToApp
 import androidx.compose.material.icons.filled.Photo
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.*
@@ -53,15 +54,57 @@ class MainActivity : ComponentActivity() {
         enableEdgeToEdge()
         setContent {
             MyApplicationTheme {
-                TaskListScreen()
+                AppNavigation()
             }
+        }
+    }
+}
+
+// Навігація додатку
+@Composable
+fun AppNavigation() {
+    var currentUser by remember { mutableStateOf<User?>(null) }
+    var currentScreen by remember { mutableStateOf("login") }
+    
+    when {
+        currentUser != null -> {
+            TaskListScreen(
+                user = currentUser!!,
+                onLogout = {
+                    currentUser = null
+                    currentScreen = "login"
+                }
+            )
+        }
+        currentScreen == "register" -> {
+            RegisterScreen(
+                onRegisterSuccess = { user ->
+                    currentUser = user
+                },
+                onNavigateToLogin = {
+                    currentScreen = "login"
+                }
+            )
+        }
+        else -> {
+            LoginScreen(
+                onLoginSuccess = { user ->
+                    currentUser = user
+                },
+                onNavigateToRegister = {
+                    currentScreen = "register"
+                }
+            )
         }
     }
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun TaskListScreen() {
+fun TaskListScreen(
+    user: User? = null,
+    onLogout: () -> Unit = {}
+) {
     var tasks by remember { mutableStateOf<List<TodoTask>>(emptyList()) }
     var showDialog by remember { mutableStateOf(false) }
     var showEditDialog by remember { mutableStateOf(false) }
@@ -83,7 +126,17 @@ fun TaskListScreen() {
         modifier = Modifier.fillMaxSize(),
         topBar = {
             TopAppBar(
-                title = { Text("Мої задачі") },
+                title = { 
+                    Column {
+                        Text("Мої задачі")
+                        if (user != null) {
+                            Text(
+                                text = user.name,
+                                style = MaterialTheme.typography.labelSmall
+                            )
+                        }
+                    }
+                },
                 colors = TopAppBarDefaults.topAppBarColors(
                     containerColor = MaterialTheme.colorScheme.primaryContainer,
                     titleContentColor = MaterialTheme.colorScheme.onPrimaryContainer
@@ -99,6 +152,11 @@ fun TaskListScreen() {
                         }
                     }) {
                         Icon(Icons.Default.Refresh, contentDescription = "Оновити")
+                    }
+                    if (user != null) {
+                        IconButton(onClick = onLogout) {
+                            Icon(Icons.Default.ExitToApp, contentDescription = "Вийти")
+                        }
                     }
                 }
             )
